@@ -2,6 +2,6 @@
 # logged-out vs logged-in contrast can be demonstrated from one screen.
 x-kedge:
   auth:
-    paths: ["/whoami"]
+    paths: ["/whoami", "/whoami-identity"]
     google: true
     github: true
