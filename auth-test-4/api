@@ -155,8 +155,10 @@ def main():
             ("secret", lambda: f"ok ({len(get_secret())} bytes)"),
             ("db_connect", lambda: bool(sqlite3.connect(DB))),
             ("db_schema", lambda: (sqlite3.connect(DB).executescript(SCHEMA), "ok")[1]),
-            ("hash_cost_ms", lambda: round((lambda t0: (hash_password("x"),
-                                            (time.time() - t0) * 1000)[1])(time.time()))),
+            ("pbkdf2_cost_ms", lambda: {
+                str(n): round((lambda t0: (hashlib.pbkdf2_hmac("sha256", b"x", b"salt", n),
+                               (time.time() - t0) * 1000)[1])(time.time()))
+                for n in (10_000, 50_000, 100_000, 200_000)}),
         ):
             try:
                 diag[step] = fn()
