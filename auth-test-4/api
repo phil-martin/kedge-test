@@ -180,38 +180,38 @@ def main():
     action = req.get("action")
 
     if action == "probe":
-        import subprocess as sp
-
+        import sqlite3 as s3
         ENGINE = "/usr/local/lib/syzy-engine.so"
+        step = req.get("step", "env")
 
-        def run_py(code):
-            try:
-                p = sp.run(["python3", "-c", code], capture_output=True,
-                           text=True, timeout=30)
-                return {"rc": p.returncode, "out": p.stdout.strip()[-200:],
-                        "err": p.stderr.strip()[-300:]}
-            except Exception as e:
-                return f"{type(e).__name__}: {e}"
+        if step == "env":
+            respond(200, {k: v for k, v in os.environ.items()
+                          if k.startswith(("SYZY", "LD_")) or k == "PATH"})
 
-        tests = {
-            "plain_memory": "import sqlite3;c=sqlite3.connect(':memory:');print(c.execute('select 1').fetchone())",
-            "plain_shared": "import sqlite3;c=sqlite3.connect('/shared.db');print(c.execute('select 42').fetchone())",
-            "enable_ext": "import sqlite3;c=sqlite3.connect(':memory:');c.enable_load_extension(True);print('ok')",
-            "load_ext_shared": ("import sqlite3;c=sqlite3.connect('/shared.db');"
-                                "c.enable_load_extension(True);"
-                                "c.execute(\"SELECT load_extension('" + ENGINE + "','sqlite3_syzy_init')\");"
-                                "print(c.execute('select 42').fetchone())"),
-        }
-        diag = {
-            "engine_so_exists": os.path.exists(ENGINE),
-            "python_version": sys.version.split()[0],
-        }
-        only = req.get("step")
-        for name, code in tests.items():
-            if only and name != only:
-                continue
-            diag[name] = run_py(code)
-        respond(200, diag)
+        if step == "connect_memory":
+            c = s3.connect(":memory:")
+            respond(200, {"ok": c.execute("select 1").fetchone()[0]})
+
+        if step == "autoload_off_memory":
+            os.environ["SYZY_AUTOLOAD"] = "0"
+            c = s3.connect(":memory:")
+            respond(200, {"ok": c.execute("select 1").fetchone()[0]})
+
+        if step == "autoload_off_shared":
+            os.environ["SYZY_AUTOLOAD"] = "0"
+            c = s3.connect(DB)
+            respond(200, {"ok": c.execute("select 42").fetchone()[0]})
+
+        if step == "autoload_off_then_load":
+            os.environ["SYZY_AUTOLOAD"] = "0"
+            c = s3.connect(DB)
+            c.enable_load_extension(True)
+            c.execute(f"SELECT load_extension('{ENGINE}','sqlite3_syzy_init')")
+            respond(200, {"ok": c.execute("select 42").fetchone()[0],
+                          "tables": [r[0] for r in c.execute(
+                              "SELECT name FROM sqlite_master WHERE type='table'").fetchall()][:8]})
+
+        respond(400, {"error": f"unknown step {step}"})
 
     try:
         sql(SCHEMA)
