@@ -37,9 +37,9 @@
   <pre id="out">press “test auth”</pre>
 
   <p class="note">A variant with <code>identity = "required"</code> set in the handler
-  configuration is in the repo as <code>whoami-identity</code>; deploying it is rejected
-  with <em>“kedge metadata identity: property does not apply to a handler”</em>, so it
-  is kept non-executable here.</p>
+  configuration is in the repo as <code>auth-test-1-rejected/whoami-identity</code>;
+  any tree containing it is rejected at deploy with
+  <em>“kedge metadata identity: property does not apply to a handler”</em>.</p>
 
   <script>
     fetch('/_kedge/auth/me')
