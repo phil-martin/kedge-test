@@ -1,0 +1,20 @@
+<!doctype html>
+<title>kedge auth test 3</title>
+<style>body{font-family:sans-serif;max-width:46rem;margin:0 auto;padding:2rem 1rem}
+pre{background:#f2f2f2;border:1px solid #ddd;border-radius:8px;padding:1rem;overflow-x:auto;font-size:.8rem}
+button{font:inherit;padding:.5rem 1rem}</style>
+<h1>kedge auth test 3: multi-service</h1>
+<p>The public <code>web</code> service (nginx, auth-gated) proxies <code>/call</code> to the
+internal <code>inner</code> service (traefik/whoami). The echo below shows every header that
+reached <code>web</code> and crossed the internal hop.</p>
+<form method="post" action="/_kedge/auth/logout" style="display:inline"><button>logout</button></form>
+<button id="t">test auth</button>
+<h2>inner's echo of the proxied request</h2><pre id="out">press "test auth"</pre>
+<script>
+document.getElementById('t').onclick = async () => {
+  const el = document.getElementById('out');
+  el.textContent = 'requesting...';
+  const r = await fetch('/call');
+  el.textContent = 'HTTP ' + r.status + '\n\n' + await r.text();
+};
+</script>
