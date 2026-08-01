@@ -3,6 +3,16 @@
 		rewrite * /
 		reverse_proxy inner:80
 	}
+	handle /call-full {
+		rewrite * /
+		reverse_proxy phil-martin-kedge-test-auth-3-inner:80
+	}
+	handle /call-pub {
+		rewrite * /
+		reverse_proxy https://phil-martin-kedge-test-auth-3-inner.kedge.run {
+			header_up Host phil-martin-kedge-test-auth-3-inner.kedge.run
+		}
+	}
 	handle {
 		root * /srv
 		file_server

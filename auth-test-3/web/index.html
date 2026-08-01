@@ -13,8 +13,10 @@ reached <code>web</code> and crossed the internal hop.</p>
 <script>
 document.getElementById('t').onclick = async () => {
   const el = document.getElementById('out');
-  el.textContent = 'requesting...';
-  const r = await fetch('/call');
-  el.textContent = 'HTTP ' + r.status + '\n\n' + await r.text();
+  el.textContent = '';
+  for (const p of ['/call', '/call-full', '/call-pub']) {
+    const r = await fetch(p);
+    el.textContent += p + ' -> HTTP ' + r.status + '\n' + await r.text() + '\n----\n';
+  }
 };
 </script>
