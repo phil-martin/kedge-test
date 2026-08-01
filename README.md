@@ -62,3 +62,11 @@ https://phil-martin-kedge-test-auth-3-web.kedge.run
 Findings: no `X-Kedge-Auth-*` headers at either hop; sibling-name private networking
 (`inner:80`) returns 502 and only the public hostname connects; the `expose`-only
 service is publicly reachable. Details in auth-test-3/README.md.
+
+## auth-test-4
+
+A **working** DIY auth implementation (email+password, hashed credentials in the
+shared SQLite, self-minted HS256 JWTs) proving that per-user backend code is possible
+on kedge without its auth. Also documents that Python's `sqlite3` module crashes
+handlers and that replicated tables reject `UNIQUE` columns and tables without a
+PRIMARY KEY. See auth-test-4/README.md.
