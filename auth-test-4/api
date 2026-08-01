@@ -186,7 +186,7 @@ def main():
 
         def run_py(code):
             try:
-                p = sp.run([sys.executable, "-c", code], capture_output=True,
+                p = sp.run(["python3", "-c", code], capture_output=True,
                            text=True, timeout=30)
                 return {"rc": p.returncode, "out": p.stdout.strip()[-200:],
                         "err": p.stderr.strip()[-300:]}
