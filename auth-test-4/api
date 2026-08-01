@@ -150,16 +150,22 @@ def main():
             "auth_secret_env_present": bool(os.environ.get("AUTH_SECRET")),
             "have_scrypt": HAVE_SCRYPT,
         }
-        for step, fn in (
-            ("shared_dir_listing", lambda: sorted(os.listdir("/shared"))[:10]),
-            ("secret", lambda: f"ok ({len(get_secret())} bytes)"),
-            ("db_connect", lambda: bool(sqlite3.connect(DB))),
-            ("db_schema", lambda: (sqlite3.connect(DB).executescript(SCHEMA), "ok")[1]),
-            ("pbkdf2_cost_ms", lambda: {
-                str(n): round((lambda t0: (hashlib.pbkdf2_hmac("sha256", b"x", b"salt", n),
-                               (time.time() - t0) * 1000)[1])(time.time()))
-                for n in (10_000, 50_000, 100_000, 200_000)}),
-        ):
+        steps = {
+            "shared_dir": lambda: sorted(os.listdir("/shared"))[:10],
+            "shared_write": lambda: (open("/shared/_probe", "w").write("x"), "ok")[1],
+            "secret": lambda: f"ok ({len(get_secret())} bytes)",
+            "db_connect": lambda: bool(sqlite3.connect(DB)),
+            "db_query": lambda: sqlite3.connect(DB).execute("SELECT 1").fetchone()[0],
+            "db_schema": lambda: (sqlite3.connect(DB).executescript(SCHEMA), "ok")[1],
+            "db_tables": lambda: [r[0] for r in sqlite3.connect(DB).execute(
+                "SELECT name FROM sqlite_master WHERE type='table'").fetchall()][:20],
+            "pbkdf2_50k": lambda: round((lambda t0: (hashlib.pbkdf2_hmac(
+                "sha256", b"x", b"salt", 50_000), (time.time() - t0) * 1000)[1])(time.time())),
+        }
+        only = req.get("step")
+        for step, fn in steps.items():
+            if only and step != only:
+                continue
             try:
                 diag[step] = fn()
             except Exception as e:
