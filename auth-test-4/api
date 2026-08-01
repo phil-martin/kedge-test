@@ -144,15 +144,32 @@ def main():
     action = req.get("action")
 
     if action == "probe":
-        respond(200, {
+        diag = {
             "authorization_header_seen": bearer_token() is not None,
             "http_env_vars": sorted(k for k in os.environ if k.startswith("HTTP_")),
             "auth_secret_env_present": bool(os.environ.get("AUTH_SECRET")),
-        })
+            "have_scrypt": HAVE_SCRYPT,
+        }
+        for step, fn in (
+            ("shared_dir_listing", lambda: sorted(os.listdir("/shared"))[:10]),
+            ("secret", lambda: f"ok ({len(get_secret())} bytes)"),
+            ("db_connect", lambda: bool(sqlite3.connect(DB))),
+            ("db_schema", lambda: (sqlite3.connect(DB).executescript(SCHEMA), "ok")[1]),
+            ("hash_cost_ms", lambda: round((lambda t0: (hash_password("x"),
+                                            (time.time() - t0) * 1000)[1])(time.time()))),
+        ):
+            try:
+                diag[step] = fn()
+            except Exception as e:
+                diag[step] = f"{type(e).__name__}: {e}"
+        respond(200, diag)
 
-    db = sqlite3.connect(DB)
-    db.executescript(SCHEMA)
-    secret = get_secret()
+    try:
+        db = sqlite3.connect(DB)
+        db.executescript(SCHEMA)
+        secret = get_secret()
+    except Exception as e:
+        respond(500, {"error": f"init failed: {type(e).__name__}: {e}"})
 
     if action == "signup":
         email = str(req.get("email", "")).strip().lower()
