@@ -159,7 +159,7 @@ def main():
             "cli_query": lambda: __import__("subprocess").run(
                 ["sqlite3", DB, "SELECT 42;"], capture_output=True, text=True, timeout=10).stdout.strip(),
             "cli_write": lambda: (lambda p: {"rc": p.returncode, "out": p.stdout.strip(),
-                                             "err": p.stderr.strip()[:300]})(
+                                             "err": p.stderr.strip()[-600:]})(
                 __import__("subprocess").run(
                     ["sqlite3", DB, "CREATE TABLE IF NOT EXISTS probe_t(x); "
                      "INSERT INTO probe_t VALUES (1); SELECT COUNT(*) FROM probe_t;"],
