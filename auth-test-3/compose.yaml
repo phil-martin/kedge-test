@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    ports: ["8000"]
+    depends_on: [inner]
+    x-kedge:
+      auth:
+        google: true
+        github: true
+  inner:
+    image: traefik/whoami
+    expose: ["80"]

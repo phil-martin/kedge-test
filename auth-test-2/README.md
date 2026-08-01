@@ -23,3 +23,7 @@ X-Kedge-Restore-Ms: 3.5
 ```
 
 No X-Kedge-Auth-* headers are present.
+
+Also tested with `x-kedge.auth` nested on the service itself (as in the site's
+compose examples) instead of top-level: identical result — the gate works, no
+X-Kedge-Auth-* headers.
