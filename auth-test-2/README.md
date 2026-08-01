@@ -13,4 +13,13 @@ echoed headers. Sign out with `POST /_kedge/auth/logout` if needed.
 
 Expected: the echo includes the X-Kedge-Auth-* headers for the signed-in user.
 
-Observed: (filled in below after deployment)
+Observed (signed in via GitHub): the echo contains only
+
+```
+X-Forwarded-For: <ips>
+X-Kedge-Dc: hil
+X-Kedge-Restore: warm
+X-Kedge-Restore-Ms: 3.5
+```
+
+No X-Kedge-Auth-* headers are present.

@@ -42,3 +42,13 @@ as a handler, whatever its name or permissions).
 A fuller test matrix (CGI handlers, standalone functions, container services — all
 identity-blind) is documented in the life-app repo:
 `docs/kedge-auth-findings.md`.
+
+## auth-test-2
+
+Container-service variant of the same question. A stock `traefik/whoami` container
+(echoes all request headers) behind an auth policy. /docs/compose says services
+receive `X-Kedge-Auth-Subject/-Email/-Provider/-Assertion`; signed-in requests show
+only `X-Kedge-Dc` / `X-Kedge-Restore` / `X-Forwarded-For`.
+
+Live: https://phil-martin-kedge-test-auth-2.kedge.run (sign in; the page is the
+container's header echo).
