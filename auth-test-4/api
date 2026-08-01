@@ -154,6 +154,12 @@ def main():
             "shared_dir": lambda: sorted(os.listdir("/shared"))[:10],
             "shared_write": lambda: (open("/shared/_probe", "w").write("x"), "ok")[1],
             "secret": lambda: f"ok ({len(get_secret())} bytes)",
+            "sqlite_version": lambda: sqlite3.sqlite_version,
+            "db_memory": lambda: sqlite3.connect(":memory:").execute("SELECT 1").fetchone()[0],
+            "db_tmpfile": lambda: sqlite3.connect("/tmp/probe.db").execute(
+                "CREATE TABLE IF NOT EXISTS t(x); SELECT 1").fetchone() and "ok",
+            "db_shared_dir_file": lambda: (lambda c: (c.execute(
+                "CREATE TABLE IF NOT EXISTS t(x)"), "ok")[1])(sqlite3.connect("/shared/probe.db")),
             "db_connect": lambda: bool(sqlite3.connect(DB)),
             "db_query": lambda: sqlite3.connect(DB).execute("SELECT 1").fetchone()[0],
             "db_schema": lambda: (sqlite3.connect(DB).executescript(SCHEMA), "ok")[1],
