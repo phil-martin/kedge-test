@@ -1,0 +1,17 @@
+#!/usr/bin/env ruby
+# Probe: does Ruby's sqlite3 gem reach /shared.db in a kedge handler?
+require 'json'
+out = { ruby: RUBY_VERSION, env: ENV.select { |k, _| k.start_with?('SYZY', 'LD_') } }
+begin
+  require 'sqlite3'
+  out[:gem] = 'loaded'
+  db = SQLite3::Database.new('/shared.db')
+  out[:query] = db.execute('SELECT 42').flatten.first
+  out[:tables] = db.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 8").flatten
+rescue LoadError => e
+  out[:gem] = "LoadError: #{e.message[0, 120]}"
+rescue => e
+  out[:error] = "#{e.class}: #{e.message[0, 200]}"
+end
+puts "Content-Type: application/json\r\n\r\n"
+puts JSON.pretty_generate(out)
