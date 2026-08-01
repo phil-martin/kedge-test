@@ -28,6 +28,16 @@ no `X-Kedge-Auth-*` headers, no cookie — while `/_kedge/auth/me` on the same o
 identifies the user. This makes per-user backend code (e.g. SQLite keyed by user)
 impossible.
 
+Also tried: setting the `identity` property in the handler configuration
+(`auth-test-1/whoami-identity`, structured comment form from /docs/handlers). Deploying
+that file as a handler is rejected with:
+
+```
+whoami-identity: kedge metadata identity: property does not apply to a handler
+```
+
+so it is kept non-executable (ships as source, not a route).
+
 A fuller test matrix (CGI handlers, standalone functions, container services — all
 identity-blind) is documented in the life-app repo:
 `docs/kedge-auth-findings.md`.

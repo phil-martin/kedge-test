@@ -28,7 +28,6 @@
     <a href="/_kedge/auth/login?next=%2F">login</a>
     <form method="post" action="/_kedge/auth/logout"><button>logout</button></form>
     <button id="test">test auth</button>
-    <button id="test2">test auth (identity property)</button>
   </div>
 
   <h2>What the frontend knows (<code>GET /_kedge/auth/me</code>)</h2>
@@ -37,9 +36,10 @@
   <h2>What the backend worker knows (<code>GET /whoami</code>, auth-gated route)</h2>
   <pre id="out">press “test auth”</pre>
 
-  <h2>Same worker with <code>identity = "required"</code> set in its handler config
-  (<code>GET /whoami-identity</code>)</h2>
-  <pre id="out2">press “test auth (identity property)”</pre>
+  <p class="note">A variant with <code>identity = "required"</code> set in the handler
+  configuration is in the repo as <code>whoami-identity</code>; deploying it is rejected
+  with <em>“kedge metadata identity: property does not apply to a handler”</em>, so it
+  is kept non-executable here.</p>
 
   <script>
     fetch('/_kedge/auth/me')
@@ -47,22 +47,19 @@
       .then((j) => { document.getElementById('me').textContent = JSON.stringify(j, null, 1); })
       .catch((e) => { document.getElementById('me').textContent = String(e); });
 
-    async function testEndpoint(path, el) {
-      el.textContent = 'requesting…';
+    document.getElementById('test').addEventListener('click', async () => {
+      const out = document.getElementById('out');
+      out.textContent = 'requesting…';
       try {
-        const r = await fetch(path);
+        const r = await fetch('/whoami');
         const text = await r.text();
         let body;
         try { body = JSON.stringify(JSON.parse(text), null, 1); } catch { body = text; }
-        el.textContent = `HTTP ${r.status}\n\n${body}`;
+        out.textContent = `HTTP ${r.status}\n\n${body}`;
       } catch (e) {
-        el.textContent = String(e);
+        out.textContent = String(e);
       }
-    }
-    document.getElementById('test').addEventListener('click',
-      () => testEndpoint('/whoami', document.getElementById('out')));
-    document.getElementById('test2').addEventListener('click',
-      () => testEndpoint('/whoami-identity', document.getElementById('out2')));
+    });
   </script>
 </body>
 </html>
