@@ -52,3 +52,13 @@ only `X-Kedge-Dc` / `X-Kedge-Restore` / `X-Forwarded-For`.
 
 Live: https://phil-martin-kedge-test-auth-2.kedge.run (sign in; the page is the
 container's header echo).
+
+## auth-test-3
+
+Multi-service compose: an auth-gated public `web` (caddy) proxying `/call` to a
+private `inner` (traefik/whoami). Live:
+https://phil-martin-kedge-test-auth-3-web.kedge.run
+
+Findings: no `X-Kedge-Auth-*` headers at either hop; sibling-name private networking
+(`inner:80`) returns 502 and only the public hostname connects; the `expose`-only
+service is publicly reachable. Details in auth-test-3/README.md.
