@@ -8,5 +8,6 @@ services:
         google: true
         github: true
   inner:
-    image: traefik/whoami
-    expose: ["80"]
+    image: docker.io/traefik/whoami:latest
+    expose:
+      - 80
