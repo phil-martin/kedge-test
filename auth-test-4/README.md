@@ -27,10 +27,21 @@ attempt stored as a literal string with the table intact.
 1. **`Authorization` headers DO reach handlers** (`HTTP_AUTHORIZATION`), which is what
    makes DIY auth possible at all.
 2. **Python's `sqlite3` module cannot be used in a handler.** Any `connect()` — even
-   `":memory:"` — kills the process (HTTP 502, no traceback), apparently via the
-   `LD_PRELOAD` replication shim. The docs say Python's stdlib "works transparently".
-   Workaround: shell out to the `sqlite3` CLI, which works. Values are passed as
-   `CAST(x'<hex>' AS TEXT)` literals, which cannot carry an injection.
+   `":memory:"` — kills the process (HTTP 502, no traceback). The handler environment
+   shows `LD_PRELOAD=/usr/local/lib/syzy.so`, `SYZY_AUTOLOAD=1`, `SYZY_DB=/shared.db`,
+   `SYZY_AUTOSPAWN=0`, `SYZY_WAKE_VSOCK=vsock:2:7849`. The docs say Python's stdlib
+   "works transparently".
+
+   The documented remedy for uninterceptable bindings —
+   `SELECT load_extension('/usr/local/lib/syzy-engine.so','sqlite3_syzy_init')` after
+   opening — **cannot be applied**: the engine .so is present, but `connect()` itself
+   crashes, so no SQL can ever be executed on the connection. Setting
+   `SYZY_AUTOLOAD=0` before connecting does not help (read at process start), and
+   testing in a python subprocess is impossible in a handler (`sys.executable` is
+   empty and `python3` is not on PATH).
+
+   Workaround in use: shell out to the `sqlite3` CLI, which works. Values are passed
+   as `CAST(x'<hex>' AS TEXT)` literals, which cannot carry an injection.
 3. **Replicated tables require a PRIMARY KEY** — `CREATE TABLE t(x)` is rejected with
    `DDL admission rejected: replicated tables require PRIMARY KEY`.
 4. **`UNIQUE` columns are rejected**: `a NOT NULL UNIQUE (coordinated) key ... requires

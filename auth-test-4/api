@@ -180,38 +180,18 @@ def main():
     action = req.get("action")
 
     if action == "probe":
-        import sqlite3 as s3
-        ENGINE = "/usr/local/lib/syzy-engine.so"
-        step = req.get("step", "env")
-
-        if step == "env":
-            respond(200, {k: v for k, v in os.environ.items()
-                          if k.startswith(("SYZY", "LD_")) or k == "PATH"})
-
-        if step == "connect_memory":
-            c = s3.connect(":memory:")
-            respond(200, {"ok": c.execute("select 1").fetchone()[0]})
-
-        if step == "autoload_off_memory":
-            os.environ["SYZY_AUTOLOAD"] = "0"
-            c = s3.connect(":memory:")
-            respond(200, {"ok": c.execute("select 1").fetchone()[0]})
-
-        if step == "autoload_off_shared":
-            os.environ["SYZY_AUTOLOAD"] = "0"
-            c = s3.connect(DB)
-            respond(200, {"ok": c.execute("select 42").fetchone()[0]})
-
-        if step == "autoload_off_then_load":
-            os.environ["SYZY_AUTOLOAD"] = "0"
-            c = s3.connect(DB)
-            c.enable_load_extension(True)
-            c.execute(f"SELECT load_extension('{ENGINE}','sqlite3_syzy_init')")
-            respond(200, {"ok": c.execute("select 42").fetchone()[0],
-                          "tables": [r[0] for r in c.execute(
-                              "SELECT name FROM sqlite_master WHERE type='table'").fetchall()][:8]})
-
-        respond(400, {"error": f"unknown step {step}"})
+        diag = {
+            "authorization_header_seen": bearer_token() is not None,
+            "have_scrypt": HAVE_SCRYPT,
+            "syzy": {k: v for k, v in os.environ.items() if k.startswith(("SYZY", "LD_"))},
+        }
+        try:
+            diag["sqlite_cli"] = sql("SELECT 42;")
+            diag["tables"] = [r["name"] for r in sql(
+                "SELECT name FROM sqlite_master WHERE type='table';", json_out=True)]
+        except Exception as e:
+            diag["sqlite_cli"] = f"{type(e).__name__}: {e}"
+        respond(200, diag)
 
     try:
         sql(SCHEMA)
