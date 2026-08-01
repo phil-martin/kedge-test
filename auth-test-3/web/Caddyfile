@@ -1,0 +1,10 @@
+:80 {
+	handle /call {
+		rewrite * /
+		reverse_proxy inner:80
+	}
+	handle {
+		root * /srv
+		file_server
+	}
+}
