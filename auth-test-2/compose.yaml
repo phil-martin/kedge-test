@@ -1,12 +1,9 @@
-# Container-service variant. Per /docs/compose, services behind an app auth policy
-# receive X-Kedge-Auth-Subject / -Email / -Provider / -Assertion headers.
-# traefik/whoami echoes every request header it receives, so the page itself shows
-# exactly what the container was given.
+# Service-level x-kedge placement (as shown in the site's compose examples).
 services:
   web:
     image: traefik/whoami
     ports: ["80"]
-x-kedge:
-  auth:
-    google: true
-    github: true
+    x-kedge:
+      auth:
+        google: true
+        github: true
