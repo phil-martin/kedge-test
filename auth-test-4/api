@@ -155,6 +155,13 @@ def main():
             "shared_write": lambda: (open("/shared/_probe", "w").write("x"), "ok")[1],
             "secret": lambda: f"ok ({len(get_secret())} bytes)",
             "sqlite_version": lambda: sqlite3.sqlite_version,
+            "cli_which": lambda: __import__("shutil").which("sqlite3") or "not found",
+            "cli_query": lambda: __import__("subprocess").run(
+                ["sqlite3", DB, "SELECT 42;"], capture_output=True, text=True, timeout=10).stdout.strip(),
+            "cli_write": lambda: __import__("subprocess").run(
+                ["sqlite3", DB, "CREATE TABLE IF NOT EXISTS probe_t(x); "
+                 "INSERT INTO probe_t VALUES (1); SELECT COUNT(*) FROM probe_t;"],
+                capture_output=True, text=True, timeout=10).stdout.strip(),
             "db_memory": lambda: sqlite3.connect(":memory:").execute("SELECT 1").fetchone()[0],
             "db_tmpfile": lambda: sqlite3.connect("/tmp/probe.db").execute(
                 "CREATE TABLE IF NOT EXISTS t(x); SELECT 1").fetchone() and "ok",
