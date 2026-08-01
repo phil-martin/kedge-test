@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kedge auth test 4: DIY email+password auth</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           max-width: 44rem; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.5; }
+    fieldset { border: 1px solid #ddd; border-radius: 10px; margin: 1rem 0; }
+    label { display: block; margin: 0.5rem 0; }
+    input { font: inherit; padding: 0.4rem 0.6rem; width: 18rem; max-width: 100%;
+            border: 1px solid #ccc; border-radius: 6px; }
+    button { font: inherit; padding: 0.45rem 0.9rem; border-radius: 8px;
+             border: 1px solid #ccc; background: #f6f6f6; cursor: pointer; }
+    pre { background: #f2f2f2; border: 1px solid #ddd; border-radius: 8px;
+          padding: 0.75rem 1rem; overflow-x: auto; font-size: 0.8rem; }
+    .note { color: #666; font-size: 0.9rem; }
+    #status { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>DIY auth on kedge</h1>
+  <p class="note">Email + password stored in the app's shared SQLite (PBKDF2/scrypt
+  hashed), sessions as self-minted HS256 JWTs sent in an <code>Authorization: Bearer</code>
+  header. No kedge auth policy is involved: the handler verifies the token itself and
+  reads/writes per-user rows keyed on the token's subject.</p>
+
+  <p id="status">signed out</p>
+
+  <fieldset>
+    <legend>credentials</legend>
+    <label>email <input id="email" type="email" autocomplete="username"></label>
+    <label>password <input id="password" type="password" autocomplete="current-password"></label>
+    <button id="signup">sign up</button>
+    <button id="login">log in</button>
+    <button id="me">call /api (me)</button>
+    <button id="logout">log out</button>
+    <button id="probe">probe headers</button>
+  </fieldset>
+
+  <h2>response</h2>
+  <pre id="out">…</pre>
+
+  <script>
+    const out = document.getElementById('out');
+    const statusEl = document.getElementById('status');
+    const token = () => localStorage.getItem('auth4.token');
+
+    function refresh() {
+      const t = token();
+      statusEl.textContent = t ? `signed in (token ${t.slice(0, 12)}…)` : 'signed out';
+    }
+
+    async function call(action, extra = {}) {
+      out.textContent = 'requesting…';
+      const headers = { 'Content-Type': 'application/json' };
+      const t = token();
+      if (t) headers.Authorization = `Bearer ${t}`;
+      const r = await fetch('/api', {
+        method: 'POST', headers,
+        body: JSON.stringify({ action, ...extra }),
+      });
+      const body = await r.json().catch(() => ({ error: 'non-JSON response' }));
+      out.textContent = `HTTP ${r.status}\n\n${JSON.stringify(body, null, 1)}`;
+      if (body.token) { localStorage.setItem('auth4.token', body.token); refresh(); }
+      return body;
+    }
+
+    const creds = () => ({
+      email: document.getElementById('email').value,
+      password: document.getElementById('password').value,
+    });
+
+    document.getElementById('signup').onclick = () => call('signup', creds());
+    document.getElementById('login').onclick = () => call('login', creds());
+    document.getElementById('me').onclick = () => call('me');
+    document.getElementById('probe').onclick = () => call('probe');
+    document.getElementById('logout').onclick = () => {
+      localStorage.removeItem('auth4.token');
+      refresh();
+      out.textContent = 'token discarded';
+    };
+    refresh();
+  </script>
+</body>
+</html>

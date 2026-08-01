@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""DIY auth handlers: email+password in shared SQLite, self-minted HS256 JWTs.
+Stdlib only. Single endpoint; the action is in the JSON body (avoids relying on
+kedge subpath routing). Actions: signup, login, me, probe.
+
+No kedge auth policy covers this app — identity is entirely ours, carried in an
+Authorization: Bearer header and verified here."""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import sqlite3
+import sys
+import time
+
+DB = os.environ.get("AUTH_DB", "/shared.db")
+SECRET_FILE = os.environ.get("AUTH_SECRET_FILE", "/shared/auth_secret")
+TOKEN_TTL = 30 * 24 * 3600  # 30 days
+# scrypt is memory-hard and preferred, but needs OpenSSL support that isn't present
+# everywhere; PBKDF2-HMAC-SHA256 is always available in stdlib. Stored hashes are
+# tagged with the scheme so both can coexist and be upgraded on next login.
+SCRYPT = {"n": 2**14, "r": 8, "p": 1}
+PBKDF2_ROUNDS = 600_000  # OWASP guidance for PBKDF2-HMAC-SHA256
+HAVE_SCRYPT = hasattr(hashlib, "scrypt")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  pw_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE TABLE IF NOT EXISTS user_visits (
+  user_id INTEGER PRIMARY KEY,
+  visits INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+
+# ---------- crypto (stdlib only) ----------
+
+def get_secret():
+    env = os.environ.get("AUTH_SECRET")
+    if env:
+        return env.encode()
+    try:
+        with open(SECRET_FILE, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        secret = secrets.token_bytes(32)
+        fd = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(secret)
+        return secret
+
+
+def _derive(scheme, password, salt):
+    if scheme == "scrypt":
+        return hashlib.scrypt(password.encode(), salt=salt, **SCRYPT).hex()
+    if scheme == "pbkdf2":
+        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ROUNDS).hex()
+    raise ValueError(f"unknown scheme {scheme}")
+
+
+def hash_password(password):
+    scheme = "scrypt" if HAVE_SCRYPT else "pbkdf2"
+    salt = secrets.token_bytes(16)
+    return f"{scheme}${salt.hex()}${_derive(scheme, password, salt)}"
+
+
+def verify_password(password, stored):
+    try:
+        scheme, salt_hex, digest_hex = stored.split("$")
+        digest = _derive(scheme, password, bytes.fromhex(salt_hex))
+        return hmac.compare_digest(digest, digest_hex)
+    except Exception:
+        return False
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def b64url_decode(s):
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def mint_jwt(user_id, email, secret, now=None):
+    now = int(now or time.time())
+    header = b64url(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    payload = b64url(json.dumps({
+        "sub": str(user_id), "email": email, "iat": now, "exp": now + TOKEN_TTL,
+    }).encode())
+    signing_input = f"{header}.{payload}".encode()
+    sig = b64url(hmac.new(secret, signing_input, hashlib.sha256).digest())
+    return f"{header}.{payload}.{sig}"
+
+
+def verify_jwt(token, secret, now=None):
+    """Returns the payload dict, or None if invalid/expired."""
+    try:
+        header_b64, payload_b64, sig_b64 = token.split(".")
+        signing_input = f"{header_b64}.{payload_b64}".encode()
+        expected = b64url(hmac.new(secret, signing_input, hashlib.sha256).digest())
+        if not hmac.compare_digest(expected, sig_b64):
+            return None
+        header = json.loads(b64url_decode(header_b64))
+        if header.get("alg") != "HS256":
+            return None
+        payload = json.loads(b64url_decode(payload_b64))
+        if int(payload.get("exp", 0)) < int(now or time.time()):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+# ---------- request handling ----------
+
+def respond(status, body):
+    sys.stdout.write(f"Status: {status}\r\nContent-Type: application/json\r\n")
+    sys.stdout.write("Cache-Control: private, no-store\r\n\r\n")
+    sys.stdout.write(json.dumps(body))
+    sys.exit(0)
+
+
+def bearer_token():
+    auth = os.environ.get("HTTP_AUTHORIZATION", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return None
+
+
+def main():
+    if os.environ.get("REQUEST_METHOD", "GET").upper() != "POST":
+        respond(405, {"error": "POST a JSON body with an 'action' field"})
+    try:
+        length = int(os.environ.get("CONTENT_LENGTH") or 0)
+        req = json.loads(sys.stdin.read(length) if length else sys.stdin.read() or "{}")
+    except json.JSONDecodeError:
+        respond(400, {"error": "invalid JSON"})
+    action = req.get("action")
+
+    if action == "probe":
+        respond(200, {
+            "authorization_header_seen": bearer_token() is not None,
+            "http_env_vars": sorted(k for k in os.environ if k.startswith("HTTP_")),
+            "auth_secret_env_present": bool(os.environ.get("AUTH_SECRET")),
+        })
+
+    db = sqlite3.connect(DB)
+    db.executescript(SCHEMA)
+    secret = get_secret()
+
+    if action == "signup":
+        email = str(req.get("email", "")).strip().lower()
+        password = str(req.get("password", ""))
+        if "@" not in email or len(email) > 254:
+            respond(400, {"error": "valid email required"})
+        if len(password) < 8:
+            respond(400, {"error": "password must be at least 8 characters"})
+        try:
+            cur = db.execute("INSERT INTO users (email, pw_hash) VALUES (?, ?)",
+                             (email, hash_password(password)))
+            db.commit()
+        except sqlite3.IntegrityError:
+            respond(409, {"error": "that email is already registered"})
+        respond(201, {"token": mint_jwt(cur.lastrowid, email, secret)})
+
+    if action == "login":
+        email = str(req.get("email", "")).strip().lower()
+        password = str(req.get("password", ""))
+        row = db.execute("SELECT id, pw_hash FROM users WHERE email = ?", (email,)).fetchone()
+        # verify against a dummy hash when the user is unknown: same timing, no enumeration
+        stored = row[1] if row else hash_password("dummy-password")
+        if not row or not verify_password(password, stored):
+            respond(401, {"error": "email or password incorrect"})
+        respond(200, {"token": mint_jwt(row[0], email, secret)})
+
+    if action == "me":
+        token = bearer_token()
+        payload = verify_jwt(token, secret) if token else None
+        if not payload:
+            respond(401, {"error": "missing or invalid token"})
+        user_id = int(payload["sub"])
+        # per-user state in backend code: the thing kedge auth couldn't give us
+        db.execute("INSERT INTO user_visits (user_id, visits) VALUES (?, 1) "
+                   "ON CONFLICT(user_id) DO UPDATE SET visits = visits + 1", (user_id,))
+        db.commit()
+        visits = db.execute("SELECT visits FROM user_visits WHERE user_id = ?",
+                            (user_id,)).fetchone()[0]
+        respond(200, {"sub": payload["sub"], "email": payload["email"],
+                      "expires": payload["exp"], "your_visit_count": visits})
+
+    respond(400, {"error": f"unknown action: {action!r}"})
+
+
+main()
