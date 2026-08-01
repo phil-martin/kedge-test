@@ -8,6 +8,6 @@ services:
         google: true
         github: true
   inner:
-    image: docker.io/traefik/whoami@sha256:80f8bb74f634d45d55967820a702c5fddf01cf92968bb29ed7a3573dd16b0e55
+    build: ./inner
     expose:
       - 80
