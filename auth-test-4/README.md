@@ -48,7 +48,13 @@ attempt stored as a literal string with the table intact.
    a reservation backend; none is configured`. Uniqueness must come from the PRIMARY
    KEY (hence email as PK, which also avoids auto-increment ids in a multi-region
    replicated database).
-5. `/shared/` filesystem writes work normally; PBKDF2 is fast (~7ms per 50k rounds).
+5. **Ruby works where Python does not.** With `# kedge: apt=ruby-sqlite3`, a Ruby
+   handler opens `/shared.db` in-process and reads normally (`SELECT 42` → 42, and it
+   can see the `users`/`user_visits` tables this app created). Same handler runtime,
+   same `LD_PRELOAD` shim — so the crash is specific to Python's `sqlite3` module, not
+   to handlers or the shim in general. `db-ruby` in this folder is the probe. (Go with
+   `-tags=libsqlite3` is untested: it needs a build step.)
+6. `/shared/` filesystem writes work normally; PBKDF2 is fast (~7ms per 50k rounds).
 
 ## Not production-ready yet
 
