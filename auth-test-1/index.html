@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kedge auth test 1</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.5; }
+    .actions { display: flex; gap: 1rem; margin: 1.5rem 0; }
+    .actions a, .actions button { font: inherit; padding: 0.5rem 1rem; border-radius: 8px;
+      border: 1px solid #ccc; background: #f6f6f6; color: #222; text-decoration: none;
+      cursor: pointer; }
+    .actions form { display: inline; margin: 0; }
+    pre { background: #f2f2f2; border: 1px solid #ddd; border-radius: 8px;
+          padding: 0.75rem 1rem; overflow-x: auto; font-size: 0.8rem; }
+    h2 { font-size: 1rem; margin: 1.5rem 0 0.4rem; }
+    .note { color: #666; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>kedge auth test 1</h1>
+  <p class="note">Demonstrates that a backend worker on a route gated by the app auth
+  policy receives no identity for the signed-in caller, while the frontend on the same
+  origin can identify them via <code>/_kedge/auth/me</code>.</p>
+
+  <div class="actions">
+    <a href="/_kedge/auth/login?next=%2F">login</a>
+    <form method="post" action="/_kedge/auth/logout"><button>logout</button></form>
+    <button id="test">test auth</button>
+  </div>
+
+  <h2>What the frontend knows (<code>GET /_kedge/auth/me</code>)</h2>
+  <pre id="me">…</pre>
+
+  <h2>What the backend worker knows (<code>GET /whoami</code>, auth-gated route)</h2>
+  <pre id="out">press “test auth”</pre>
+
+  <script>
+    fetch('/_kedge/auth/me')
+      .then((r) => r.json())
+      .then((j) => { document.getElementById('me').textContent = JSON.stringify(j, null, 1); })
+      .catch((e) => { document.getElementById('me').textContent = String(e); });
+
+    document.getElementById('test').addEventListener('click', async () => {
+      const out = document.getElementById('out');
+      out.textContent = 'requesting…';
+      try {
+        const r = await fetch('/whoami');
+        const text = await r.text();
+        let body;
+        try { body = JSON.stringify(JSON.parse(text), null, 1); } catch { body = text; }
+        out.textContent = `HTTP ${r.status}\n\n${body}`;
+      } catch (e) {
+        out.textContent = String(e);
+      }
+    });
+  </script>
+</body>
+</html>

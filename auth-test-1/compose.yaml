@@ -1,0 +1,7 @@
+# Auth gates only the backend worker route; the front page stays public so the
+# logged-out vs logged-in contrast can be demonstrated from one screen.
+x-kedge:
+  auth:
+    paths: ["/whoami"]
+    google: true
+    github: true

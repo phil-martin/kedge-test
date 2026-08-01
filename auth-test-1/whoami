@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Diagnostic worker: reports every piece of auth/identity information visible to
+backend code for the current request. Per kedge docs, handlers should receive
+KEDGE_AUTH_SUBJECT / KEDGE_AUTH_EMAIL / KEDGE_AUTH_PROVIDER / KEDGE_AUTH_ASSERTION
+when an app auth policy gates the route. This route IS gated (see compose.yaml)."""
+import json
+import os
+
+
+def handler(req):
+    env_auth = {k: v for k, v in os.environ.items()
+                if 'AUTH' in k.upper() and 'COOKIE' not in k.upper()}
+    env_kedge = {k: v for k, v in os.environ.items() if k.startswith('KEDGE_')}
+    try:
+        headers = dict(req.headers)
+    except Exception:
+        headers = {}
+    cookie_present = any(k.lower() == 'cookie' for k in headers)
+    safe_headers = {k: v for k, v in headers.items() if k.lower() != 'cookie'}
+    return {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({
+            "expected": ["KEDGE_AUTH_SUBJECT", "KEDGE_AUTH_EMAIL",
+                          "KEDGE_AUTH_PROVIDER", "KEDGE_AUTH_ASSERTION"],
+            "auth_env_vars_found": env_auth,
+            "kedge_env_vars_found": env_kedge,
+            "request_headers": safe_headers,
+            "cookie_header_present": cookie_present,
+            "all_env_var_names": sorted(os.environ.keys()),
+        }, indent=1),
+    }
