@@ -182,33 +182,35 @@ def main():
     if action == "probe":
         import subprocess as sp
 
-        def run_py(code):
-            p = sp.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30)
-            return {"rc": p.returncode, "out": p.stdout.strip()[-300:],
-                    "err": p.stderr.strip()[-400:]}
-
         ENGINE = "/usr/local/lib/syzy-engine.so"
-        diag = {
-            "authorization_header_seen": bearer_token() is not None,
-            "engine_so_exists": os.path.exists(ENGINE),
-            "engine_candidates": [p for p in (
-                ENGINE, "/usr/lib/syzy-engine.so", "/lib/syzy-engine.so") if os.path.exists(p)],
-            "python_sqlite_dynlink": run_py(
-                "import sqlite3,subprocess,sys;"
-                "print(subprocess.run(['sh','-c','ldd '+sqlite3.__file__.replace('.py','')+'* 2>/dev/null | grep -i sqlite || "
-                "find / -name _sqlite3*.so 2>/dev/null | head -1 | xargs -r ldd | grep -i sqlite'],"
-                "capture_output=True,text=True).stdout.strip()[:200])"),
-            "plain_memory": run_py("import sqlite3; c=sqlite3.connect(':memory:'); "
-                                   "print(c.execute('select 1').fetchone())"),
-            "plain_shared": run_py("import sqlite3; c=sqlite3.connect('/shared.db'); "
-                                   "print(c.execute('select 42').fetchone())"),
-            "can_enable_ext": run_py("import sqlite3; c=sqlite3.connect(':memory:'); "
-                                     "c.enable_load_extension(True); print('yes')"),
-            "load_extension_shared": run_py(
-                "import sqlite3; c=sqlite3.connect('/shared.db'); c.enable_load_extension(True); "
-                "c.execute(\"SELECT load_extension('%s','sqlite3_syzy_init')\"); "
-                "print(c.execute('select 42').fetchone())" % ENGINE),
+
+        def run_py(code):
+            try:
+                p = sp.run([sys.executable, "-c", code], capture_output=True,
+                           text=True, timeout=30)
+                return {"rc": p.returncode, "out": p.stdout.strip()[-200:],
+                        "err": p.stderr.strip()[-300:]}
+            except Exception as e:
+                return f"{type(e).__name__}: {e}"
+
+        tests = {
+            "plain_memory": "import sqlite3;c=sqlite3.connect(':memory:');print(c.execute('select 1').fetchone())",
+            "plain_shared": "import sqlite3;c=sqlite3.connect('/shared.db');print(c.execute('select 42').fetchone())",
+            "enable_ext": "import sqlite3;c=sqlite3.connect(':memory:');c.enable_load_extension(True);print('ok')",
+            "load_ext_shared": ("import sqlite3;c=sqlite3.connect('/shared.db');"
+                                "c.enable_load_extension(True);"
+                                "c.execute(\"SELECT load_extension('" + ENGINE + "','sqlite3_syzy_init')\");"
+                                "print(c.execute('select 42').fetchone())"),
         }
+        diag = {
+            "engine_so_exists": os.path.exists(ENGINE),
+            "python_version": sys.version.split()[0],
+        }
+        only = req.get("step")
+        for name, code in tests.items():
+            if only and name != only:
+                continue
+            diag[name] = run_py(code)
         respond(200, diag)
 
     try:
