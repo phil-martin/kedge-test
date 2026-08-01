@@ -11,7 +11,7 @@ import hmac
 import json
 import os
 import secrets
-import sqlite3
+import subprocess
 import sys
 import time
 
@@ -25,6 +25,10 @@ SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 PBKDF2_ROUNDS = 600_000  # OWASP guidance for PBKDF2-HMAC-SHA256
 HAVE_SCRYPT = hasattr(hashlib, "scrypt")
 
+# NOTE: python's sqlite3 module cannot be used here — any connect() (even
+# ":memory:") kills the handler process on kedge, apparently via the LD_PRELOAD
+# replication shim. The sqlite3 CLI works, so all data access goes through it.
+# Replicated tables must declare a PRIMARY KEY.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
@@ -37,6 +41,35 @@ CREATE TABLE IF NOT EXISTS user_visits (
   visits INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+# ---------- data access via the sqlite3 CLI ----------
+
+def lit(value):
+    """SQL literal. Strings become hex blobs cast to text: injection-proof, since
+    the rendered literal can only contain [0-9a-f]."""
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    return f"CAST(x'{str(value).encode().hex()}' AS TEXT)"
+
+
+def sql(statements, json_out=False):
+    """Run SQL through the sqlite3 CLI. Returns parsed rows when json_out."""
+    args = ["sqlite3"]
+    if json_out:
+        args.append("-json")
+    args += [DB, statements]
+    p = subprocess.run(args, capture_output=True, text=True, timeout=20)
+    if p.returncode != 0:
+        raise RuntimeError(f"sqlite failed rc={p.returncode}: {p.stderr.strip()[-200:]}")
+    if not json_out:
+        return p.stdout.strip()
+    out = p.stdout.strip()
+    return json.loads(out) if out else []
 
 
 # ---------- crypto (stdlib only) ----------
@@ -146,50 +179,19 @@ def main():
     if action == "probe":
         diag = {
             "authorization_header_seen": bearer_token() is not None,
-            "http_env_vars": sorted(k for k in os.environ if k.startswith("HTTP_")),
             "auth_secret_env_present": bool(os.environ.get("AUTH_SECRET")),
             "have_scrypt": HAVE_SCRYPT,
         }
-        steps = {
-            "shared_dir": lambda: sorted(os.listdir("/shared"))[:10],
-            "shared_write": lambda: (open("/shared/_probe", "w").write("x"), "ok")[1],
-            "secret": lambda: f"ok ({len(get_secret())} bytes)",
-            "sqlite_version": lambda: sqlite3.sqlite_version,
-            "cli_which": lambda: __import__("shutil").which("sqlite3") or "not found",
-            "cli_query": lambda: __import__("subprocess").run(
-                ["sqlite3", DB, "SELECT 42;"], capture_output=True, text=True, timeout=10).stdout.strip(),
-            "cli_write": lambda: (lambda p: {"rc": p.returncode, "out": p.stdout.strip(),
-                                             "err": p.stderr.strip()[-600:]})(
-                __import__("subprocess").run(
-                    ["sqlite3", DB, "CREATE TABLE IF NOT EXISTS probe_t(x); "
-                     "INSERT INTO probe_t VALUES (1); SELECT COUNT(*) FROM probe_t;"],
-                    capture_output=True, text=True, timeout=10)),
-            "db_memory": lambda: sqlite3.connect(":memory:").execute("SELECT 1").fetchone()[0],
-            "db_tmpfile": lambda: sqlite3.connect("/tmp/probe.db").execute(
-                "CREATE TABLE IF NOT EXISTS t(x); SELECT 1").fetchone() and "ok",
-            "db_shared_dir_file": lambda: (lambda c: (c.execute(
-                "CREATE TABLE IF NOT EXISTS t(x)"), "ok")[1])(sqlite3.connect("/shared/probe.db")),
-            "db_connect": lambda: bool(sqlite3.connect(DB)),
-            "db_query": lambda: sqlite3.connect(DB).execute("SELECT 1").fetchone()[0],
-            "db_schema": lambda: (sqlite3.connect(DB).executescript(SCHEMA), "ok")[1],
-            "db_tables": lambda: [r[0] for r in sqlite3.connect(DB).execute(
-                "SELECT name FROM sqlite_master WHERE type='table'").fetchall()][:20],
-            "pbkdf2_50k": lambda: round((lambda t0: (hashlib.pbkdf2_hmac(
-                "sha256", b"x", b"salt", 50_000), (time.time() - t0) * 1000)[1])(time.time())),
-        }
-        only = req.get("step")
-        for step, fn in steps.items():
-            if only and step != only:
-                continue
-            try:
-                diag[step] = fn()
-            except Exception as e:
-                diag[step] = f"{type(e).__name__}: {e}"
+        try:
+            diag["sqlite_cli"] = sql("SELECT 42;")
+            diag["tables"] = [r["name"] for r in sql(
+                "SELECT name FROM sqlite_master WHERE type='table';", json_out=True)]
+        except Exception as e:
+            diag["sqlite_cli"] = f"{type(e).__name__}: {e}"
         respond(200, diag)
 
     try:
-        db = sqlite3.connect(DB)
-        db.executescript(SCHEMA)
+        sql(SCHEMA)
         secret = get_secret()
     except Exception as e:
         respond(500, {"error": f"init failed: {type(e).__name__}: {e}"})
@@ -201,23 +203,25 @@ def main():
             respond(400, {"error": "valid email required"})
         if len(password) < 8:
             respond(400, {"error": "password must be at least 8 characters"})
-        try:
-            cur = db.execute("INSERT INTO users (email, pw_hash) VALUES (?, ?)",
-                             (email, hash_password(password)))
-            db.commit()
-        except sqlite3.IntegrityError:
+        existing = sql(f"SELECT id FROM users WHERE email = {lit(email)};", json_out=True)
+        if existing:
             respond(409, {"error": "that email is already registered"})
-        respond(201, {"token": mint_jwt(cur.lastrowid, email, secret)})
+        sql(f"INSERT INTO users (email, pw_hash) VALUES "
+            f"({lit(email)}, {lit(hash_password(password))});")
+        row = sql(f"SELECT id FROM users WHERE email = {lit(email)};", json_out=True)
+        if not row:
+            respond(500, {"error": "signup did not persist"})
+        respond(201, {"token": mint_jwt(row[0]["id"], email, secret)})
 
     if action == "login":
         email = str(req.get("email", "")).strip().lower()
         password = str(req.get("password", ""))
-        row = db.execute("SELECT id, pw_hash FROM users WHERE email = ?", (email,)).fetchone()
-        # verify against a dummy hash when the user is unknown: same timing, no enumeration
-        stored = row[1] if row else hash_password("dummy-password")
-        if not row or not verify_password(password, stored):
+        rows = sql(f"SELECT id, pw_hash FROM users WHERE email = {lit(email)};", json_out=True)
+        # verify against a dummy hash when unknown: same timing, no user enumeration
+        stored = rows[0]["pw_hash"] if rows else hash_password("dummy-password")
+        if not rows or not verify_password(password, stored):
             respond(401, {"error": "email or password incorrect"})
-        respond(200, {"token": mint_jwt(row[0], email, secret)})
+        respond(200, {"token": mint_jwt(rows[0]["id"], email, secret)})
 
     if action == "me":
         token = bearer_token()
@@ -225,14 +229,14 @@ def main():
         if not payload:
             respond(401, {"error": "missing or invalid token"})
         user_id = int(payload["sub"])
-        # per-user state in backend code: the thing kedge auth couldn't give us
-        db.execute("INSERT INTO user_visits (user_id, visits) VALUES (?, 1) "
-                   "ON CONFLICT(user_id) DO UPDATE SET visits = visits + 1", (user_id,))
-        db.commit()
-        visits = db.execute("SELECT visits FROM user_visits WHERE user_id = ?",
-                            (user_id,)).fetchone()[0]
+        # per-user state written by backend code: the thing kedge auth couldn't do
+        sql(f"INSERT INTO user_visits (user_id, visits) VALUES ({lit(user_id)}, 1) "
+            f"ON CONFLICT(user_id) DO UPDATE SET visits = visits + 1;")
+        rows = sql(f"SELECT visits FROM user_visits WHERE user_id = {lit(user_id)};",
+                   json_out=True)
         respond(200, {"sub": payload["sub"], "email": payload["email"],
-                      "expires": payload["exp"], "your_visit_count": visits})
+                      "expires": payload["exp"],
+                      "your_visit_count": rows[0]["visits"] if rows else 0})
 
     respond(400, {"error": f"unknown action: {action!r}"})
 
