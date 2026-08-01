@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# kedge: apt=ruby-sqlite3
 # Probe: does Ruby's sqlite3 gem reach /shared.db in a kedge handler?
 require 'json'
 out = { ruby: RUBY_VERSION, env: ENV.select { |k, _| k.start_with?('SYZY', 'LD_') } }
